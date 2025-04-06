@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 from sqlglot import parse_one, exp
+from textwrap import wrap
 
 DEBUG = False
 
@@ -75,6 +76,8 @@ def insert_rows(conn, alias, columns, rows):
 def parse_args():
     parser = argparse.ArgumentParser(description="Run SELECT queries on local CSV/JSON files using SQLite.")
     parser.add_argument("query", type=str, help="SQL SELECT statement referencing local files")
+    parser.add_argument("--format", "-o", choices=["csv", "json", "table"], default="table",
+                        help="Output format: csv, json, or table (default)")
     return parser.parse_args()
 
 def rewrite_table_paths(ast):
@@ -109,20 +112,42 @@ def extract_file_tables(ast):
 
     return file_tables
 
-def print_results(cursor):
+def output_results(cursor, output_format):
     """
     Given a cursor into an executed query, print the results
     """
-    writer = csv.writer(sys.stdout)
+    if output_format == "csv":
+        writer = csv.writer(sys.stdout)
+        headers_written = False
+        for row in cursor:
+            if not headers_written:
+                headers = [desc[0] for desc in cursor.description]
+                writer.writerow(headers)
+                headers_written = True
+            writer.writerow(row)
 
-    header_printed = False
-    for row in cursor:
-        if not header_printed:
-            headers = [d[0] for d in cursor.description]
-            writer.writerow(headers)
-            header_printed = True
+    elif output_format == "json":
+        headers = [desc[0] for desc in cursor.description]
+        rows = [dict(zip(headers, row)) for row in cursor]
+        print(json.dumps(rows, indent=2))
 
-        writer.writerow(row)
+    elif output_format == "table":
+        headers = [desc[0] for desc in cursor.description]
+        rows = list(cursor)
+
+        col_widths = [len(h) for h in headers]
+        for row in rows:
+            for i, val in enumerate(row):
+                col_widths[i] = max(col_widths[i], len(str(val)))
+
+        def format_row(row):
+            return " | ".join(str(val).ljust(col_widths[i]) for i, val in enumerate(row))
+
+        divider = "-+-".join("-" * w for w in col_widths)
+        print(format_row(headers))
+        print(divider)
+        for row in rows:
+            print(format_row(row))
 
 def main():
     args = parse_args()
@@ -159,7 +184,7 @@ def main():
     # Execute rewritten SQL
     rewritten_sql = ast.sql(dialect="sqlite")
     cursor = conn.execute(rewritten_sql)
-    print_results(cursor)
+    output_results(cursor, args.format)
 
 if __name__ == "__main__":
     main()
