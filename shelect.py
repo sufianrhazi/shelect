@@ -24,18 +24,19 @@ def rewrite_table_paths(ast):
 
 def extract_file_tables(ast):
     """
-    Traverse the AST and extract all table references with their aliases.
-    Only keep tables whose name looks like a file path (contains '/' or ends in .csv/.json).
+    Traverse the AST and extract all table references with aliases.
+    Raise if a file path is used as a table name but no alias is provided.
     """
     file_tables = {}
 
     for table in ast.find_all(exp.Table):
         table_name = table.name
         alias = table.args.get("alias")
-        alias_name = alias.name if alias else table_name
 
         if "/" in table_name or table_name.endswith((".csv", ".json")):
-            file_tables[alias_name] = table_name
+            if not alias:
+                raise ValueError(f'Missing alias for file path table "{table_name}"')
+            file_tables[alias.name] = table_name
 
     return file_tables
 
@@ -44,10 +45,15 @@ def main():
     try:
         ast = parse_one('SELECT ' + args.query, dialect="sqlite")
     except Exception as e:
-        print(f"Error parsing SQL: {e}", file=sys.stderr)
+        print(f"SQL syntax error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    file_tables = extract_file_tables(ast)
+    try:
+        file_tables = extract_file_tables(ast)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
     if not file_tables:
         print("No file-based tables found in SQL query.", file=sys.stderr)
         sys.exit(1)

@@ -52,3 +52,15 @@ def test_cte_select():
     rewritten = get_rewritten_sql(sql)
     assert "FROM base" in rewritten
     assert "JOIN o ON" in rewritten
+
+def test_missing_alias_raises():
+    sql = 'SELECT * FROM "./no-alias.csv"'
+    ast = parse_one(sql, dialect="sqlite")
+    with pytest.raises(ValueError, match=r'Missing alias'):
+        extract_file_tables(ast)
+
+def test_syntax_error():
+    sql = 'SELECT FROM WHERE'
+    with pytest.raises(Exception, match=r'Expected table name'):
+        parse_one(sql, dialect="sqlite")
+
