@@ -1,7 +1,76 @@
 #!/usr/bin/env python3
 import argparse
+import csv
+import sqlite3
+import json
 import sys
+from pathlib import Path
 from sqlglot import parse_one, exp
+
+DEBUG = False
+
+def detect_csv_dialect(path):
+    """
+    Attempt to detect whether the file is CSV or TSV.
+    """
+    with open(path, newline='', encoding='utf-8') as f:
+        sample = f.read(2048)
+    sniffer = csv.Sniffer()
+    dialect = sniffer.sniff(sample)
+    return dialect
+
+def load_file_into_sqlite(conn, alias, file_path):
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    if path.suffix.lower() == ".csv":
+        return load_csv(conn, alias, path)
+
+    elif path.suffix.lower() == ".json":
+        return load_json(conn, alias, path)
+
+    else:
+        raise ValueError(f"Unsupported file type: {file_path}")
+
+def load_csv(conn, alias, path):
+    dialect = detect_csv_dialect(path)
+
+    with open(path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f, dialect=dialect)
+        columns = reader.fieldnames
+
+        # Create table
+        create_temp_table(conn, alias, columns)
+
+        # Insert data
+        rows = [tuple(row[col] for col in columns) for row in reader]
+        insert_rows(conn, alias, columns, rows)
+
+def load_json(conn, alias, path):
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+
+    if not isinstance(data, list) or not all(isinstance(obj, dict) for obj in data):
+        raise ValueError(f"Expected JSON file {path} to be a top-level array of objects.")
+
+    columns = list(data[0].keys())
+    rows = [tuple(row.get(col) for col in columns) for row in data]
+
+    create_temp_table(conn, alias, columns)
+    insert_rows(conn, alias, columns, rows)
+
+def create_temp_table(conn, alias, columns):
+    col_defs = ", ".join(f'"{col}" TEXT' for col in columns)
+    conn.execute(f'CREATE TEMP TABLE "{alias}" ({col_defs})')
+
+def insert_rows(conn, alias, columns, rows):
+    placeholders = ", ".join(["?"] * len(columns))
+    col_names = ", ".join(f'"{col}"' for col in columns)
+    conn.executemany(
+        f'INSERT INTO "{alias}" ({col_names}) VALUES ({placeholders})',
+        rows
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run SELECT queries on local CSV/JSON files using SQLite.")
@@ -58,19 +127,31 @@ def main():
         print("No file-based tables found in SQL query.", file=sys.stderr)
         sys.exit(1)
 
-    print("Found file references:")
-    for alias, path in file_tables.items():
-        print(f"  {alias}: {path}")
+    # Load files into temp tables
+    conn = sqlite3.connect(":memory:")
+    for alias, file_path in file_tables.items():
+        if DEBUG:
+            print(f"\nLoading {file_path} into table {alias}...")
+        load_file_into_sqlite(conn, alias, file_path)
 
     # Rewrite the query to use only aliases as table names
     rewrite_table_paths(ast)
     rewritten_sql = ast.sql(dialect="sqlite")
-    print("\nRewritten query:")
-    print(rewritten_sql)
+    if DEBUG:
+        print("\nRewritten query:")
+        print(rewritten_sql)
 
-    # TODO: Load files into in-memory SQLite tables
-    # TODO: Replace file paths in AST with temp table names
-    # TODO: Execute query on the rewritten SQL
+    # Execute rewritten SQL
+    rewritten_sql = ast.sql(dialect="sqlite")
+    cursor = conn.execute(rewritten_sql)
+    rows = cursor.fetchall()
+    headers = [d[0] for d in cursor.description]
+
+    if DEBUG:
+        print("\nQuery result:")
+    print("\t".join(headers))
+    for row in rows:
+        print("\t".join(map(str, row)))
 
 if __name__ == "__main__":
     main()
