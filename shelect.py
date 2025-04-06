@@ -109,6 +109,21 @@ def extract_file_tables(ast):
 
     return file_tables
 
+def print_results(cursor):
+    """
+    Given a cursor into an executed query, print the results
+    """
+    writer = csv.writer(sys.stdout)
+
+    header_printed = False
+    for row in cursor:
+        if not header_printed:
+            headers = [d[0] for d in cursor.description]
+            writer.writerow(headers)
+            header_printed = True
+
+        writer.writerow(row)
+
 def main():
     args = parse_args()
     try:
@@ -144,14 +159,7 @@ def main():
     # Execute rewritten SQL
     rewritten_sql = ast.sql(dialect="sqlite")
     cursor = conn.execute(rewritten_sql)
-    rows = cursor.fetchall()
-    headers = [d[0] for d in cursor.description]
-
-    if DEBUG:
-        print("\nQuery result:")
-    print("\t".join(headers))
-    for row in rows:
-        print("\t".join(map(str, row)))
+    print_results(cursor)
 
 if __name__ == "__main__":
     main()
