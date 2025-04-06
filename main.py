@@ -8,6 +8,20 @@ def parse_args():
     parser.add_argument("query", type=str, help="SQL SELECT statement referencing local files")
     return parser.parse_args()
 
+def rewrite_table_paths(ast):
+    """
+    Modify the AST in-place to replace any file-based table references with just their alias name.
+    Example: FROM "./data.csv" AS a → FROM a
+    """
+    for table in ast.find_all(exp.Table):
+        table_name = table.name
+        alias = table.args.get("alias")
+
+        if alias and ("/" in table_name or table_name.endswith((".csv", ".json"))):
+            # Replace table name with alias
+            table.set("this", exp.to_identifier(alias.name))
+            table.set("alias", None)
+
 def extract_file_tables(ast):
     """
     Traverse the AST and extract all table references with their aliases.
@@ -41,6 +55,12 @@ def main():
     print("Found file references:")
     for alias, path in file_tables.items():
         print(f"  {alias}: {path}")
+
+    # Rewrite the query to use only aliases as table names
+    rewrite_table_paths(ast)
+    rewritten_sql = ast.sql(dialect="sqlite")
+    print("\nRewritten query:")
+    print(rewritten_sql)
 
     # TODO: Load files into in-memory SQLite tables
     # TODO: Replace file paths in AST with temp table names
