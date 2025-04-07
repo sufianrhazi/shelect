@@ -82,9 +82,19 @@ def insert_rows(conn, table_name, columns, rows):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run SELECT queries on local CSV/JSON files using SQLite.")
-    parser.add_argument("query", type=str, help="SQL SELECT statement referencing local files")
-    parser.add_argument("--format", "-o", choices=["csv", "json", "table"], default="table",
-                        help="Output format: csv, json, or table (default)")
+    parser.add_argument(
+        "query",
+        nargs="*",
+        type=str,
+        help="SQL SELECT statement referencing local files"
+    )
+    parser.add_argument(
+        "--format",
+        "-o",
+        choices=["csv", "json", "table"],
+        default="table" if sys.stdout.isatty() else 'csv',
+        help="Output format: table (default if tty), csv (default otherwise), json"
+    )
     return parser.parse_args()
 
 def extract_tables(ast):
@@ -142,33 +152,37 @@ def output_results(cursor, output_format):
 
 def main():
     args = parse_args()
-    try:
-        ast = parse_one(args.query, dialect="sqlite")
-    except Exception as e:
-        print(f"SQL syntax error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        tables = extract_tables(ast)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Load files into temp tables
     conn = sqlite3.connect(":memory:")
-    for table_name in tables:
-        if DEBUG:
-            print(f"\nLoading table {table_name}...")
+    loaded_files = set()
+    for query in args.query:
         try:
-            load_file_into_sqlite(conn, table_name)
+            ast = parse_one(query, dialect="sqlite")
         except Exception as e:
-            print(f'Error loading table data from {table_name}: {e}', file=sys.stderr)
+            print(f"SQL syntax error: {e}", file=sys.stderr)
             sys.exit(1)
 
-    # Execute rewritten SQL
-    sql_to_execute = ast.sql(dialect="sqlite")
-    cursor = conn.execute(sql_to_execute)
-    output_results(cursor, args.format)
+        try:
+            tables = extract_tables(ast)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        # Load files into temp tables
+        for table_name in tables:
+            if table_name not in loaded_files:
+                if DEBUG:
+                    print(f"\nLoading table {table_name}...")
+                try:
+                    load_file_into_sqlite(conn, table_name)
+                except Exception as e:
+                    print(f'Error loading table data from {table_name}: {e}', file=sys.stderr)
+                    sys.exit(1)
+                loaded_files.add(table_name)
+
+        # Execute rewritten SQL
+        sql_to_execute = ast.sql(dialect="sqlite")
+        cursor = conn.execute(sql_to_execute)
+        output_results(cursor, args.format)
 
 if __name__ == "__main__":
     main()
