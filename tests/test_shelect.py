@@ -1,8 +1,7 @@
-# test_shelect.py
-
 import pytest
 from sqlglot import parse_one
-from shelect import extract_tables 
+
+from shelect.ast_utils import extract_tables 
 
 def get_file_tables(sql):
     ast = parse_one(sql, dialect="sqlite")
