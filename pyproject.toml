@@ -15,5 +15,9 @@ dependencies = [
     "sqlglot>=26.12.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/sufianrhazi/shelect"
+Issues = "https://github.com/sufianrhazi/shelect/issues"
+
 [project.scripts]
 shelect = "shelect.cli:main"
