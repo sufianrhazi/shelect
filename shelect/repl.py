@@ -1,10 +1,6 @@
 import cmd
-import readline
 import sys
 from sqlglot import Tokenizer, parse, TokenType
-
-def readline_completer(text, state):
-    pass
 
 class Repl(cmd.Cmd):
     intro = "Type SQL statements ending in ';' or Ctrl+D to exit."
@@ -17,10 +13,6 @@ class Repl(cmd.Cmd):
         self.engine = engine
         self.buffer = []
 
-        # Set up simple tab completion
-        readline.set_completer(self.complete_hook)
-        readline.parse_and_bind("tab: complete")
-
     def cmdloop(self):
         while True:
             try:
@@ -31,14 +23,6 @@ class Repl(cmd.Cmd):
                 print("\nKeyboardInterrupt")
                 # Clear intro to avoid re-printing
                 self.intro = ''
-
-    def complete_hook(self, text, state):
-        joined = "\n".join(self.buffer + [text]).strip()
-        if not joined:
-            return
-        tokens = Tokenizer().tokenize(joined)
-        print(tokens)
-        return None
 
     def default(self, line):
         self.buffer.append(line)
