@@ -46,5 +46,3 @@ def main():
                         print(f"Error running SQL: {e}", file=sys.stderr)
                         sys.exit(1)
 
-if __name__ == "__main__":
-    main()
