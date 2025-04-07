@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import csv
-import sqlite3
+import io
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from sqlglot import parse_one, exp
@@ -10,66 +11,72 @@ from textwrap import wrap
 
 DEBUG = False
 
-def detect_csv_dialect(path):
+def load_table(conn, table_name, content):
     """
-    Attempt to detect whether the file is CSV or TSV.
+    Given string content of a file, parse as JSON/CSV and load into table_name
     """
-    with open(path, newline='', encoding='utf-8') as f:
-        sample = f.read(2048)
-    sniffer = csv.Sniffer()
-    dialect = sniffer.sniff(sample)
-    return dialect
+    stripped = content.lstrip()
 
-def load_file_into_sqlite(conn, alias, file_path):
-    path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    if path.suffix.lower() == ".csv":
-        return load_csv(conn, alias, path)
-
-    elif path.suffix.lower() == ".json":
-        return load_json(conn, alias, path)
-
+    if stripped.startswith("{") or stripped.startswith("["):
+        return load_json_from_string(conn, table_name, content)
     else:
-        raise ValueError(f"Unsupported file type: {file_path}")
+        return load_csv_from_string(conn, table_name, content)
 
-def load_csv(conn, alias, path):
-    dialect = detect_csv_dialect(path)
+def load_file_into_sqlite(conn, table_name):
+    path = Path(table_name)
 
-    with open(path, newline='', encoding='utf-8') as f:
+    if path == Path('-') or path == Path('stdin'):
+        content = sys.stdin.read()
+        return load_table(conn, table_name, content)
+
+    with open(path, 'r') as f:
+        content = f.read()
+        return load_table(conn, table_name, content)
+
+def load_csv_from_string(conn, table_name, content):
+    # csv.Sniffer is bizarrely bad at determining information about the file 
+    #
+    # We use a simple heuristic:
+    # - lineterminator: First line looks like a \r\n? Then \r\n; otherwise \n
+    # - deliminator: Limited to either , or \t
+    #
+    # The other dialect fields are guessed by the sniffer given the first line
+    # only, to avoid surprises with the *intense* regex
+    first_line = content.partition('\n')[0]
+    lineterminator = '\r\n' if first_line.endswith('\r') else '\n'
+    dialect = csv.Sniffer().sniff(first_line.strip(), [',', '\t'])
+    dialect.lineterminator = lineterminator
+
+    with io.StringIO(content) as f:
         reader = csv.DictReader(f, dialect=dialect)
+
         columns = reader.fieldnames
-
-        # Create table
-        create_temp_table(conn, alias, columns)
-
-        # Insert data
+        create_temp_table(conn, table_name, columns)
         rows = [tuple(row[col] for col in columns) for row in reader]
-        insert_rows(conn, alias, columns, rows)
 
-def load_json(conn, alias, path):
-    with open(path, encoding='utf-8') as f:
-        data = json.load(f)
+    insert_rows(conn, table_name, columns, rows)
+
+def load_json_from_string(conn, table_name, content):
+    data = json.loads(content)
 
     if not isinstance(data, list) or not all(isinstance(obj, dict) for obj in data):
-        raise ValueError(f"Expected JSON file {path} to be a top-level array of objects.")
+        raise ValueError(f"Expected stdin JSON to be a top-level array of objects.")
 
     columns = list(data[0].keys())
     rows = [tuple(row.get(col) for col in columns) for row in data]
 
-    create_temp_table(conn, alias, columns)
-    insert_rows(conn, alias, columns, rows)
+    create_temp_table(conn, table_name, columns)
+    insert_rows(conn, table_name, columns, rows)
 
-def create_temp_table(conn, alias, columns):
+def create_temp_table(conn, table_name, columns):
     col_defs = ", ".join(f'"{col}" TEXT' for col in columns)
-    conn.execute(f'CREATE TEMP TABLE "{alias}" ({col_defs})')
+    conn.execute(f'CREATE TEMP TABLE "{table_name}" ({col_defs})')
 
-def insert_rows(conn, alias, columns, rows):
+def insert_rows(conn, table_name, columns, rows):
     placeholders = ", ".join(["?"] * len(columns))
     col_names = ", ".join(f'"{col}"' for col in columns)
     conn.executemany(
-        f'INSERT INTO "{alias}" ({col_names}) VALUES ({placeholders})',
+        f'INSERT INTO "{table_name}" ({col_names}) VALUES ({placeholders})',
         rows
     )
 
@@ -80,37 +87,16 @@ def parse_args():
                         help="Output format: csv, json, or table (default)")
     return parser.parse_args()
 
-def rewrite_table_paths(ast):
+def extract_tables(ast):
     """
-    Modify the AST in-place to replace any file-based table references with just their alias name.
-    Example: FROM "./data.csv" AS a → FROM a
+    Traverse the AST and extract all table references.
     """
-    for table in ast.find_all(exp.Table):
-        table_name = table.name
-        alias = table.args.get("alias")
-
-        if alias and ("/" in table_name or table_name.endswith((".csv", ".json"))):
-            # Replace table name with alias
-            table.set("this", exp.to_identifier(alias.name))
-            table.set("alias", None)
-
-def extract_file_tables(ast):
-    """
-    Traverse the AST and extract all table references with aliases.
-    Raise if a file path is used as a table name but no alias is provided.
-    """
-    file_tables = {}
+    tables = set()
 
     for table in ast.find_all(exp.Table):
-        table_name = table.name
-        alias = table.args.get("alias")
+        tables.add(table.name)
 
-        if "/" in table_name or table_name.endswith((".csv", ".json")):
-            if not alias:
-                raise ValueError(f'Missing alias for file path table "{table_name}"')
-            file_tables[alias.name] = table_name
-
-    return file_tables
+    return tables
 
 def output_results(cursor, output_format):
     """
@@ -152,38 +138,31 @@ def output_results(cursor, output_format):
 def main():
     args = parse_args()
     try:
-        ast = parse_one('SELECT ' + args.query, dialect="sqlite")
+        ast = parse_one(args.query, dialect="sqlite")
     except Exception as e:
         print(f"SQL syntax error: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
-        file_tables = extract_file_tables(ast)
+        tables = extract_tables(ast)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    if not file_tables:
-        print("No file-based tables found in SQL query.", file=sys.stderr)
-        sys.exit(1)
-
     # Load files into temp tables
     conn = sqlite3.connect(":memory:")
-    for alias, file_path in file_tables.items():
+    for table_name in tables:
         if DEBUG:
-            print(f"\nLoading {file_path} into table {alias}...")
-        load_file_into_sqlite(conn, alias, file_path)
-
-    # Rewrite the query to use only aliases as table names
-    rewrite_table_paths(ast)
-    rewritten_sql = ast.sql(dialect="sqlite")
-    if DEBUG:
-        print("\nRewritten query:")
-        print(rewritten_sql)
+            print(f"\nLoading table {table_name}...")
+        try:
+            load_file_into_sqlite(conn, table_name)
+        except Exception as e:
+            print(f'Error loading table data from {table_name}: {e}', file=sys.stderr)
+            sys.exit(1)
 
     # Execute rewritten SQL
-    rewritten_sql = ast.sql(dialect="sqlite")
-    cursor = conn.execute(rewritten_sql)
+    sql_to_execute = ast.sql(dialect="sqlite")
+    cursor = conn.execute(sql_to_execute)
     output_results(cursor, args.format)
 
 if __name__ == "__main__":
