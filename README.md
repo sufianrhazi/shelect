@@ -6,6 +6,7 @@ Use it for easy, local ad-hoc analysis of CSV/TSV/JSON files.
 
 It supports all functions and SQL syntax supported by [SQLite](https://sqlite.org/).
 
+![shelect](https://github.com/user-attachments/assets/9c86c1f3-a323-4ff2-9297-f29b66f9fd00)
 
 ## How to use it
 
