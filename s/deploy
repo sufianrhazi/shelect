@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -e
+cd "$(dirname "$0")/.."
+B="$(tput bold)"
+R="$(tput setaf 1)"
+G="$(tput setaf 2)"
+Y="$(tput setaf 3)"
+NORMAL="$(tput sgr0)"
+
+echo "${Y}Running tests...${NORMAL}"
+venv/bin/pytest 
+
+echo
+echo "${G}Tests pass${NORMAL}"
+
+echo
+echo "Deploying and building version ${R}$(grep version pyproject.toml | awk '{ print $3 }')${NORMAL}"
+
+echo -n "Please type ${B}deploy${NORMAL} to confirm: "
+read -r CONFIRM
+if [ "$CONFIRM" != "deploy" ]; then
+    echo "${R}Incorrect confirmation, exiting${NORMAL}"
+    exit 1
+fi
+
+echo
+echo "${Y}Building...${NORMAL}" 
+venv/bin/python3 -m build
+
+echo
+echo "${Y}Uploading via twine in 3...${NORMAL}" 
+sleep 1
+echo "${Y}Uploading via twine in 2...${NORMAL}" 
+sleep 1
+echo "${Y}Uploading via twine in 1...${NORMAL}" 
+sleep 1
+echo "${Y}Uploading via twine...${NORMAL}" 
+venv/bin/python3 -m twine upload dist/*
