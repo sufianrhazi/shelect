@@ -15,6 +15,9 @@ dependencies = [
     "sqlglot>=26.12.0",
 ]
 
+[tool.setuptools]
+packages = ["shelect"]
+
 [project.urls]
 Homepage = "https://github.com/sufianrhazi/shelect"
 Issues = "https://github.com/sufianrhazi/shelect/issues"
