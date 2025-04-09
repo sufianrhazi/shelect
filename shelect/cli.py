@@ -41,7 +41,7 @@ def main():
                 statements = parse(query, dialect="sqlite")
             except Exception as e:
                 print(f"SQL syntax error: {e}", file=sys.stderr)
-                raise e
+                sys.exit(1)
             for statement in statements:
                 if statement:
                     try:

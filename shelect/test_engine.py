@@ -1,5 +1,5 @@
 import pytest
-from sqlglot import parse_one
+from sqlglot import parse, parse_one
 from pathlib import Path
 import json
 
@@ -143,3 +143,21 @@ Bob    | 20
 Alice  | 10          
 Dani   | NULL        
 '''.lstrip() == output.test_get_output()
+
+def test_empty_execution():
+    fs = FilesystemFake()
+    output = OutputFake()
+
+    engine = Engine(fs, output, 'table')
+
+    # Odd test case, but in the repl if a semicolon after a comment is
+    # encountered, a statement is produced that results in a query that has no
+    # results at all
+    executed = False
+    for statement in parse('-- comment\n;'):
+        if statement:
+            engine.run_statement(statement)
+            executed = True
+
+    assert executed
+    assert '' == output.test_get_output()

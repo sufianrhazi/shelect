@@ -32,7 +32,10 @@ class Repl(cmd.Cmd):
         if not joined:
             return
 
-        tokens = Tokenizer().tokenize(joined)
+        try:
+            tokens = Tokenizer().tokenize(joined)
+        except:
+            return
         if not tokens or tokens[-1].token_type != TokenType.SEMICOLON:
             # Not a complete statement yet
             self.prompt = self.CONT_PROMPT

@@ -100,7 +100,9 @@ class Engine:
         sql_to_execute = ast.sql(dialect="sqlite")
         cursor = self.conn.execute(sql_to_execute)
 
-        self.print_results(cursor)
+        # If there is no description, no statement was executed (i.e. a comment was executed)
+        if cursor.description:
+            self.print_results(cursor)
 
     def print_results(self, cursor):
         """
