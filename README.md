@@ -61,9 +61,16 @@ functionality.
 
 ## How to install
 
-Right now, assuming you have python3 installed:
+shelect is on pypi: https://pypi.org/project/shelect/
 
-1. Clone this repo
-2. Change into the directory
-3. `pip3 install .`
+Via [pipx](https://pipx.pypa.io/stable/):
 
+```
+$ pipx install shelect
+```
+
+Via pip:
+
+```
+$ python3 -m pip install shelect
+```
