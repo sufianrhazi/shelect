@@ -3,6 +3,8 @@ import signal
 import sys
 from sqlglot import parse
 
+from .output import Output
+from .filesystem import Filesystem
 from .engine import Engine
 from .repl import Repl
 
@@ -25,7 +27,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    engine = Engine(args.format)
+    output = Output()
+    filesystem = Filesystem()
+    engine = Engine(filesystem, output, args.format)
 
     if not args.query:
         if sys.stdin.isatty():

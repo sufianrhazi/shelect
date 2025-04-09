@@ -8,7 +8,9 @@ from pathlib import Path
 from .ast_utils import extract_tables
 
 class Engine:
-    def __init__(self, output_format):
+    def __init__(self, filesystem, output, output_format):
+        self._output = output
+        self._filesystem = filesystem
         self.loaded_files = set()
         self.output_format = output_format
         self.conn = sqlite3.connect(':memory:')
@@ -75,10 +77,10 @@ class Engine:
         path = Path(table_name)
 
         if path == Path('-') or path == Path('stdin'):
-            content = sys.stdin.read()
+            content = self._filesystem.get_stdin().read()
             return self.load_file_table_content(table_name, content)
 
-        with open(path, 'r') as f:
+        with self._filesystem.open_file(path) as f:
             content = f.read()
             return self.load_file_table_content(table_name, content)
 
@@ -105,7 +107,7 @@ class Engine:
         Given a cursor into an executed query, print the results
         """
         if self.output_format == "csv":
-            writer = csv.writer(sys.stdout)
+            writer = csv.writer(self._output.get_as_file())
             headers_written = False
             for row in cursor:
                 if not headers_written:
@@ -117,7 +119,7 @@ class Engine:
         elif self.output_format == "json":
             headers = [desc[0] for desc in cursor.description]
             rows = [dict(zip(headers, row)) for row in cursor]
-            print(json.dumps(rows, indent=2))
+            self._output.print(json.dumps(rows, indent=2))
 
         elif self.output_format == "table":
             headers = [desc[0] for desc in cursor.description]
@@ -141,7 +143,7 @@ class Engine:
                 return " | ".join(format_val(val).ljust(col_widths[i]) for i, val in enumerate(row))
 
             divider = "-+-".join("-" * w for w in col_widths)
-            print(format_row(headers))
-            print(divider)
+            self._output.print(format_row(headers))
+            self._output.print(divider)
             for row in rows:
-                print(format_row(row))
+                self._output.print(format_row(row))
