@@ -161,3 +161,30 @@ def test_empty_execution():
 
     assert executed
     assert '' == output.test_get_output()
+
+def test_missing_file():
+    fs = FilesystemFake()
+    output = OutputFake()
+
+    engine = Engine(fs, output, 'table')
+
+    try:
+        engine.run_statement(parse_one('SELECT * FROM missing'))
+    except Exception as e:
+        assert str(e) == 'Error loading table data from missing'
+    else:
+        assert False, 'No exception thrown when reading missing table'
+
+def test_with_clause_does_not_read_declared_table():
+    fs = FilesystemFake()
+    output = OutputFake()
+
+    engine = Engine(fs, output, 'table')
+
+    engine.run_statement(parse_one("WITH mytable AS (SELECT 'foo' AS a, 'bar' AS b) SELECT * FROM mytable"))
+
+    assert '''
+a   | b  
+----+----
+foo | bar
+'''.lstrip() == output.test_get_output()
